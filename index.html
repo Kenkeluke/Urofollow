@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0f766e">
+<title>UroFollow</title>
+<style>
+:root{--bg:#f5f7f8;--card:#fff;--ink:#17212b;--muted:#66737f;--line:#dfe6ea;--brand:#0f766e;--brand2:#115e59;--danger:#b42318;--warn:#b54708;--ok:#027a48}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--ink)}
+header{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}.bar{max-width:1200px;margin:auto;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px}.logo{font-size:21px;font-weight:800;color:var(--brand)}
+nav{display:flex;gap:6px;flex-wrap:wrap}.nav{border:0;background:transparent;padding:9px 12px;border-radius:12px;cursor:pointer;color:#42515c}.nav.active,.nav:hover{background:#e6f4f2;color:var(--brand2);font-weight:700}
+main{max-width:1200px;margin:28px auto;padding:0 20px}.hero{display:flex;justify-content:space-between;gap:20px;align-items:flex-end;margin-bottom:22px}.hero h1{margin:0 0 6px;font-size:30px}.hero p{margin:0;color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:18px;box-shadow:0 2px 10px #17212b08}.metric{font-size:30px;font-weight:800;margin-top:8px}.label{color:var(--muted);font-size:13px}.section{margin-top:22px}.section h2{font-size:18px;margin:0 0 12px}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.btn{border:1px solid var(--line);background:#fff;padding:10px 14px;border-radius:12px;cursor:pointer;font-weight:650}.btn.primary{background:var(--brand);border-color:var(--brand);color:white}.btn.danger{color:var(--danger);border-color:#f3c5c0}.btn:disabled{opacity:.5;cursor:not-allowed}
+table{width:100%;border-collapse:collapse}.tablewrap{overflow:auto}.tablewrap td,.tablewrap th{text-align:left;padding:12px;border-bottom:1px solid var(--line);white-space:nowrap}.tablewrap th{font-size:12px;color:var(--muted);text-transform:uppercase}
+.badge{display:inline-flex;padding:5px 9px;border-radius:999px;font-size:12px;font-weight:750}.ok{background:#e8f6ef;color:var(--ok)}.warn{background:#fff3e8;color:var(--warn)}.danger{background:#fcebea;color:var(--danger)}.neutral{background:#eef2f5;color:#53616c}
+.form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.field{display:flex;flex-direction:column;gap:6px}.field.full{grid-column:1/-1}.field label{font-size:12px;color:var(--muted);font-weight:700}.field input,.field select,.field textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;font:inherit}.field textarea{min-height:90px}
+.notice{padding:13px 15px;border-radius:14px;background:#edf8f6;border:1px solid #cbe9e5;color:#155e59}.empty{padding:30px;text-align:center;color:var(--muted)}
+#app{min-height:60vh}.modal{position:fixed;inset:0;background:#17212b66;display:none;align-items:center;justify-content:center;padding:20px;z-index:20}.modal.open{display:flex}.modalbox{background:#fff;border-radius:20px;max-width:720px;width:100%;padding:22px;max-height:90vh;overflow:auto}.modalbox h2{margin-top:0}
+.auth{max-width:440px;margin:10vh auto}.auth .card{padding:28px}.error{color:var(--danger);font-size:13px}.small{font-size:12px;color:var(--muted)}
+@media(max-width:800px){.grid{grid-template-columns:repeat(2,1fr)}.form{grid-template-columns:1fr}.hero{align-items:flex-start;flex-direction:column}}
+@media(max-width:520px){.grid{grid-template-columns:1fr 1fr}main{padding:0 12px}.bar{padding:12px}.nav{padding:8px}}
+</style>
+</head>
+<body>
+<header><div class="bar"><div class="logo">UroFollow</div><nav id="nav"></nav><button class="btn" id="signOut">Sign out</button></div></header>
+<main id="app"></main>
+<div class="modal" id="modal"><div class="modalbox" id="modalbox"></div></div>
+<script type="module">
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+
+const CONFIG={url:"",key:""};
+const supabase=CONFIG.url&&CONFIG.key?createClient(CONFIG.url,CONFIG.key):null;
+let session=null, clinic=null, page="dashboard", data={patients:[],episodes:[],investigations:[],stents:[]};
+
+const $=s=>document.querySelector(s);
+function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function fmt(d){return d?new Date(d).toLocaleDateString():"—"}
+function badge(t,c="neutral"){return `<span class="badge ${c}">${esc(t)}</span>`}
+function openModal(html){$("#modalbox").innerHTML=html;$("#modal").classList.add("open")}
+function closeModal(){$("#modal").classList.remove("open")}
+$("#modal").addEventListener("click",e=>{if(e.target.id==="modal")closeModal()});
+$("#signOut").onclick=async()=>{if(supabase)await supabase.auth.signOut();location.reload()};
+
+function authView(){
+document.querySelector("header").style.display="none";
+$("#app").innerHTML=`<div class="auth"><div class="card">
+<h1>UroFollow</h1><p class="small">Multi-user urology follow-up tracker.</p>
+<form id="authForm" class="form">
+<div class="field full"><label>Email</label><input id="email" type="email" required></div>
+<div class="field full"><label>Password</label><input id="password" type="password" minlength="6" required></div>
+<div class="field full"><button class="btn primary" type="submit">Sign in</button></div>
+</form><p id="authMsg" class="error"></p>
+<p class="small">Create users in Supabase Authentication, then assign them to a clinic using the SQL instructions in DEPLOY.md.</p>
+</div></div>`;
+$("#authForm").onsubmit=async e=>{e.preventDefault();if(!supabase)return $("#authMsg").textContent="Add your Supabase URL and publishable/anon key in index.html first.";const {error}=await supabase.auth.signInWithPassword({email:$("#email").value,password:$("#password").value});if(error)$("#authMsg").textContent=error.message};
+}
+async function load(){
+if(!supabase){authView();return}
+const {data:s}=await supabase.auth.getSession();session=s.session;if(!session){authView();return}
+document.querySelector("header").style.display="";
+const p=await supabase.from("profiles").select("*,clinics(*)").eq("id",session.user.id).single();
+if(p.error){$("#app").innerHTML=`<div class="card"><h2>Account not linked</h2><p>Your authenticated user has no profile/clinic yet. Follow DEPLOY.md to create a clinic and profile.</p></div>`;return}
+clinic=p.data.clinics;await refresh();render();
+}
+async function refresh(){
+const c=clinic.id;
+const [p,e,i,s]=await Promise.all([
+supabase.from("patients").select("*").eq("clinic_id",c).order("created_at",{ascending:false}),
+supabase.from("followup_episodes").select("*").eq("clinic_id",c).order("created_at",{ascending:false}),
+supabase.from("investigations").select("*").eq("clinic_id",c).order("due_date",{ascending:true,nullsFirst:false}),
+supabase.from("stents").select("*").eq("clinic_id",c).order("planned_removal",{ascending:true,nullsFirst:false})
+]);
+data={patients:p.data||[],episodes:e.data||[],investigations:i.data||[],stents:s.data||[]};
+}
+function nav(){
+const items=[["dashboard","Dashboard"],["patients","Patients"],["episodes","Follow-up Episodes"],["investigations","Investigations"],["stents","Stents"],["how","How to Use"]];
+$("#nav").innerHTML=items.map(x=>`<button class="nav ${page===x[0]?"active":""}" data-p="${x[0]}">${x[1]}</button>`).join("");
+document.querySelectorAll(".nav").forEach(b=>b.onclick=()=>{page=b.dataset.p;render()});
+}
+function render(){nav();({dashboard:dashboard,patients:patients,episodes:episodes,investigations:investigations,stents:stents,how:how}[page])()}
+function patientName(id){const p=data.patients.find(x=>x.id===id);return p?p.name:"Unknown patient"}
+function dashboard(){
+const ready=data.episodes.filter(e=>e.status==="ready").length, contact=data.episodes.filter(e=>e.status==="contact").length;
+const overdue=data.investigations.filter(i=>i.status!=="received"&&i.due_date&&new Date(i.due_date)<new Date()).length;
+$("#app").innerHTML=`<div class="hero"><div><h1>Dashboard</h1><p>${esc(clinic.name||"Clinic")} · follow-up command centre</p></div><button class="btn primary" onclick="window.newEpisode()">+ New follow-up episode</button></div>
+<div class="grid"><div class="card"><div class="label">Patients</div><div class="metric">${data.patients.length}</div></div><div class="card"><div class="label">Waiting for results</div><div class="metric">${data.episodes.filter(e=>e.status==="waiting").length}</div></div><div class="card"><div class="label">Ready for review</div><div class="metric">${ready}</div></div><div class="card"><div class="label">Patient contact required</div><div class="metric">${contact}</div></div></div>
+<div class="section"><h2>Priority queue</h2><div class="card"><div class="tablewrap"><table><thead><tr><th>Patient</th><th>Episode</th><th>Status</th><th>Updated</th><th></th></tr></thead><tbody>
+${data.episodes.filter(e=>["ready","contact"].includes(e.status)).map(e=>`<tr><td>${esc(patientName(e.patient_id))}</td><td>${esc(e.title)}</td><td>${badge(e.status,e.status==="contact"?"danger":"ok")}</td><td>${fmt(e.updated_at)}</td><td><button class="btn" onclick="window.editEpisode('${e.id}')">Open</button></td></tr>`).join("")||`<tr><td colspan="5" class="empty">No priority items.</td></tr>`}</tbody></table></div></div></div>`;
+}
+function patients(){
+$("#app").innerHTML=`<div class="hero"><div><h1>Patients</h1><p>Clinic patient registry.</p></div><button class="btn primary" onclick="window.newPatient()">+ Add patient</button></div>
+<div class="card"><div class="tablewrap"><table><thead><tr><th>Name</th><th>MRN</th><th>DOB</th><th>Phone</th><th></th></tr></thead><tbody>${data.patients.map(p=>`<tr><td>${esc(p.name)}</td><td>${esc(p.mrn||"")}</td><td>${fmt(p.dob)}</td><td>${esc(p.phone||"")}</td><td><button class="btn" onclick="window.editPatient('${p.id}')">Edit</button></td></tr>`).join("")||`<tr><td colspan="5" class="empty">No patients yet.</td></tr>`}</tbody></table></div></div>`;
+}
+function episodes(){
+$("#app").innerHTML=`<div class="hero"><div><h1>Follow-up Episodes</h1><p>Use “Wait for ALL” to hold contact until every required investigation is received.</p></div><button class="btn primary" onclick="window.newEpisode()">+ New episode</button></div>
+<div class="card"><div class="tablewrap"><table><thead><tr><th>Patient</th><th>Episode</th><th>Rule</th><th>Status</th><th>Override</th><th></th></tr></thead><tbody>${data.episodes.map(e=>`<tr><td>${esc(patientName(e.patient_id))}</td><td>${esc(e.title)}</td><td>${esc(e.completion_rule||"")}</td><td>${badge(e.status,e.status==="contact"?"danger":e.status==="ready"?"ok":"neutral")}</td><td>${e.contact_early?badge("Contact early","warn"):badge("No")}</td><td><button class="btn" onclick="window.editEpisode('${e.id}')">Open</button></td></tr>`).join("")||`<tr><td colspan="6" class="empty">No episodes yet.</td></tr>`}</tbody></table></div></div>`;
+}
+function investigations(){
+$("#app").innerHTML=`<div class="hero"><div><h1>Investigations</h1><p>Results feed follow-up episode readiness.</p></div><button class="btn primary" onclick="window.newInvestigation()">+ Add investigation</button></div>
+<div class="card"><div class="tablewrap"><table><thead><tr><th>Patient</th><th>Investigation</th><th>Status</th><th>Due</th><th>Received</th><th></th></tr></thead><tbody>${data.investigations.map(i=>`<tr><td>${esc(patientName(i.patient_id))}</td><td>${esc(i.type)}</td><td>${badge(i.status,i.status==="received"?"ok":i.due_date&&new Date(i.due_date)<new Date()?"danger":"neutral")}</td><td>${fmt(i.due_date)}</td><td>${fmt(i.received_at)}</td><td><button class="btn" onclick="window.editInvestigation('${i.id}')">Edit</button></td></tr>`).join("")||`<tr><td colspan="6" class="empty">No investigations yet.</td></tr>`}</tbody></table></div></div>`;
+}
+function stents(){
+$("#app").innerHTML=`<div class="hero"><div><h1>Ureteral Stents</h1><p>Track insertion and planned removal dates.</p></div><button class="btn primary" onclick="window.newStent()">+ Add stent</button></div>
+<div class="card"><div class="tablewrap"><table><thead><tr><th>Patient</th><th>Side</th><th>Type</th><th>Fr</th><th>Length</th><th>Inserted</th><th>Planned removal</th><th>Status</th><th></th></tr></thead><tbody>${data.stents.map(s=>{let over=s.planned_removal&&new Date(s.planned_removal)<new Date()&&!s.removed_at;return `<tr><td>${esc(patientName(s.patient_id))}</td><td>${esc(s.side||"")}</td><td>${esc(s.stent_type||"")}</td><td>${esc(s.fr_size||"")}</td><td>${esc(s.length_mm||"")}</td><td>${fmt(s.insertion_date)}</td><td>${fmt(s.planned_removal)}</td><td>${s.removed_at?badge("Removed","ok"):over?badge("Overdue","danger"):badge("In situ","neutral")}</td><td><button class="btn" onclick="window.editStent('${s.id}')">Edit</button></td></tr>`}).join("")||`<tr><td colspan="9" class="empty">No stents yet.</td></tr>`}</tbody></table></div></div>`;
+}
+function how(){
+$("#app").innerHTML=`<div class="hero"><div><h1>How to Use UroFollow</h1><p>Recommended workflow.</p></div></div>
+<div class="card"><div class="notice"><b>Core rule:</b> a follow-up episode using “Wait for ALL investigations” remains in Waiting until every required investigation is received. “Contact early” is the explicit override.</div>
+<div class="section"><h2>1. Add the patient</h2><p>Create the patient record with a clinic-specific MRN if available.</p></div>
+<div class="section"><h2>2. Create a follow-up episode</h2><p>Example: PSA + testosterone + urine culture + MRI. Select <b>Wait for ALL investigations</b>, then add each investigation to the episode.</p></div>
+<div class="section"><h2>3. Enter results</h2><p>Mark each investigation as <b>Received</b>. The episode automatically changes to <b>Ready</b> only when all required investigations are received.</p></div>
+<div class="section"><h2>4. Review and contact</h2><p>Open a Ready episode, review it, then mark <b>Patient contact required</b>. Contact early can be used at any time when clinically appropriate.</p></div>
+<div class="section"><h2>5. Stents</h2><p>Record side, type, manufacturer, Fr size, length, insertion date and planned removal. Overdue in-situ stents are highlighted.</p></div>
+<div class="section"><h2>Security</h2><p>Data is isolated by clinic using Supabase Row Level Security. Do not place a service-role key in this browser app. Test thoroughly with dummy data before production use.</p></div></div>`;
+}
+async function save(table,id,values){
+const payload={...values,clinic_id:clinic.id};
+let r=id?await supabase.from(table).update(payload).eq("id",id):await supabase.from(table).insert(payload);
+if(r.error)alert(r.error.message);else{closeModal();await refresh();render()}
+}
+window.newPatient=()=>openModal(`<h2>Add patient</h2><form id="f" class="form">
+${field("name","Name",true)}${field("mrn","MRN")}${field("dob","Date of birth","", "date")}${field("phone","Phone")}${field("email","Email")}${field("notes","Notes","","textarea")}
+<div class="row"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary">Save</button></div></form>`);
+window.editPatient=id=>{let p=data.patients.find(x=>x.id===id);openModal(`<h2>Edit patient</h2><form id="f" class="form">${field("name","Name",true,"text",p.name)}${field("mrn","MRN","","text",p.mrn)}${field("dob","Date of birth","","date",p.dob)}${field("phone","Phone","","text",p.phone)}${field("email","Email","","email",p.email)}${field("notes","Notes","","textarea",p.notes)}<div class="row"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary">Save</button></div></form>`)};
+function field(n,l,req="",type="text",val=""){return `<div class="field ${type==="textarea"?"full":""}"><label>${l}</label>${type==="textarea"?`<textarea id="${n}">${esc(val)}</textarea>`:`<input id="${n}" type="${type}" value="${esc(val)}" ${req===true?"required":""}>`}</div>`}
+$("#modal").addEventListener("submit",async e=>{if(e.target.id!=="f")return;e.preventDefault()});
+async function formSave(ids,table,id,extra={}){
+const v={};ids.forEach(n=>v[n]=$("#"+n)?.value||null);await save(table,id,{...v,...extra})
+}
+document.addEventListener("submit",async e=>{if(e.target.id!=="f")return;e.preventDefault();const h=$("#modalbox h2")?.textContent||"";if(h.includes("patient")){const id=e.target.dataset.id||null;await formSave(["name","mrn","dob","phone","email","notes"],"patients",id)}});
+window.newEpisode=()=>openModal(`<h2>New follow-up episode</h2><form id="episodeForm" class="form"><div class="field full"><label>Patient</label><select id="patient_id" required>${data.patients.map(p=>`<option value="${p.id}">${esc(p.name)}${p.mrn?" · "+esc(p.mrn):""}</option>`).join("")}</select></div>${field("title","Episode title",true)}<div class="field"><label>Completion rule</label><select id="completion_rule"><option>Wait for ALL investigations</option><option>Wait for ANY investigation</option></select></div><div class="field"><label>Contact early</label><select id="contact_early"><option value="false">No</option><option value="true">Yes</option></select></div><div class="field full"><label>Notes</label><textarea id="notes"></textarea></div><div class="row"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary">Create</button></div></form>`);
+window.editEpisode=id=>{let e=data.episodes.find(x=>x.id===id);openModal(`<h2>Edit follow-up episode</h2><form id="episodeEdit" class="form"><div class="field full"><label>Patient</label><input value="${esc(patientName(e.patient_id))}" disabled></div>${field("title","Episode title",true,"text",e.title)}<div class="field"><label>Status</label><select id="status"><option ${e.status==="waiting"?"selected":""}>waiting</option><option ${e.status==="ready"?"selected":""}>ready</option><option ${e.status==="contact"?"selected":""}>contact</option><option ${e.status==="complete"?"selected":""}>complete</option></select></div><div class="field"><label>Contact early</label><select id="contact_early"><option value="false" ${!e.contact_early?"selected":""}>No</option><option value="true" ${e.contact_early?"selected":""}>Yes</option></select></div><div class="field full"><label>Notes</label><textarea id="notes">${esc(e.notes)}</textarea></div><div class="row"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary">Save</button></div></form>`);$("#episodeEdit").onsubmit=async ev=>{ev.preventDefault();await save("followup_episodes",id,{title:$("#title").value,status:$("#status").value,contact_early:$("#contact_early").value==="true",notes:$("#notes").value})}};
+document.addEventListener("submit",async e=>{if(e.target.id==="episodeForm"){e.preventDefault();await save("followup_episodes",null,{patient_id:$("#patient_id").value,title:$("#title").value,completion_rule:$("#completion_rule").value,contact_early:$("#contact_early").value==="true",status:"waiting",notes:$("#notes").value})}});
+window.newInvestigation=()=>openModal(`<h2>Add investigation</h2><form id="invForm" class="form"><div class="field full"><label>Patient</label><select id="patient_id" required>${data.patients.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select></div>${field("type","Investigation",true)}${field("due_date","Due date","","date")}<div class="field"><label>Status</label><select id="status"><option>ordered</option><option>scheduled</option><option>received</option></select></div>${field("result_summary","Result summary","","textarea")}<div class="row"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary">Save</button></div></form>`);
+window.editInvestigation=id=>{let i=data.investigations.find(x=>x.id===id);openModal(`<h2>Edit investigation</h2><form id="invEdit" class="form">${field("type","Investigation",true,"text",i.type)}${field("due_date","Due date","","date",i.due_date)}<div class="field"><label>Status</label><select id="status"><option ${i.status==="ordered"?"selected":""}>ordered</option><option ${i.status==="scheduled"?"selected":""}>scheduled</option><option ${i.status==="received"?"selected":""}>received</option></select></div>${field("result_summary","Result summary","","textarea",i.result_summary)}<div class="row"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary">Save</button></div></form>`);$("#invEdit").onsubmit=async ev=>{ev.preventDefault();await save("investigations",id,{type:$("#type").value,due_date:$("#due_date").value||null,status:$("#status").value,result_summary:$("#result_summary").value,received_at:$("#status").value==="received"?new Date().toISOString():i.received_at})}};
+document.addEventListener("submit",async e=>{if(e.target.id==="invForm"){e.preventDefault();await save("investigations",null,{patient_id:$("#patient_id").value,type:$("#type").value,due_date:$("#due_date").value||null,status:$("#status").value,result_summary:$("#result_summary").value,received_at:$("#status").value==="received"?new Date().toISOString():null})}});
+window.newStent=()=>openModal(`<h2>Add ureteral stent</h2><form id="stentForm" class="form"><div class="field full"><label>Patient</label><select id="patient_id" required>${data.patients.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select></div><div class="field"><label>Side</label><select id="side"><option>Left</option><option>Right</option><option>Bilateral</option></select></div>${field("stent_type","Stent type")}${field("manufacturer","Manufacturer")}${field("fr_size","Fr size")}${field("length_mm","Length (mm)")}${field("insertion_date","Insertion date","","date")}${field("planned_removal","Planned removal","","date")}${field("notes","Notes","","textarea")}<div class="row"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary">Save</button></div></form>`);
+window.editStent=id=>{let s=data.stents.find(x=>x.id===id);openModal(`<h2>Edit stent</h2><form id="stentEdit" class="form">${field("side","Side","","text",s.side)}${field("stent_type","Stent type","","text",s.stent_type)}${field("manufacturer","Manufacturer","","text",s.manufacturer)}${field("fr_size","Fr size","","text",s.fr_size)}${field("length_mm","Length (mm)","","text",s.length_mm)}${field("insertion_date","Insertion date","","date",s.insertion_date)}${field("planned_removal","Planned removal","","date",s.planned_removal)}${field("removed_at","Removed date","","date",s.removed_at)}${field("notes","Notes","","textarea",s.notes)}<div class="row"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary">Save</button></div></form>`);$("#stentEdit").onsubmit=async ev=>{ev.preventDefault();await save("stents",id,{side:$("#side").value,stent_type:$("#stent_type").value,manufacturer:$("#manufacturer").value,fr_size:$("#fr_size").value,length_mm:$("#length_mm").value,insertion_date:$("#insertion_date").value||null,planned_removal:$("#planned_removal").value||null,removed_at:$("#removed_at").value?new Date($("#removed_at").value).toISOString():null,notes:$("#notes").value})}};
+document.addEventListener("submit",async e=>{if(e.target.id==="stentForm"){e.preventDefault();await save("stents",null,{patient_id:$("#patient_id").value,side:$("#side").value,stent_type:$("#stent_type").value,manufacturer:$("#manufacturer").value,fr_size:$("#fr_size").value,length_mm:$("#length_mm").value,insertion_date:$("#insertion_date").value||null,planned_removal:$("#planned_removal").value||null,notes:$("#notes").value})}});
+load();
+</script>
+</body>
+</html>
